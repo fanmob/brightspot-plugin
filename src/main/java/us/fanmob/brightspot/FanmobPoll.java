@@ -2,10 +2,8 @@ package us.fanmob.brightspot;
 
 import com.psddev.cms.db.Content;
 import com.psddev.cms.db.Renderer;
-import com.psddev.cms.db.Taxon;
 import com.psddev.cms.db.ToolUi;
 
-import com.psddev.dari.db.*;
 import com.psddev.dari.util.*;
 
 import java.io.IOException;
@@ -15,8 +13,6 @@ import java.util.*;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletRequest;
 
-import org.apache.http.Header;
-import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
@@ -36,16 +32,12 @@ import org.slf4j.LoggerFactory;
 @ToolUi.LabelFields("question")
 @ToolUi.Referenceable
 @ToolUi.Note("Once you've created this poll, you will not be able to edit it! Instead, create and embed a new poll.")
-public class FanmobPoll extends Content implements Renderer {
+public class FanmobPoll extends Content implements Renderer, FanMobObject {
     @ToolUi.Hidden
     private String fanmobId;
 
     @ToolUi.Hidden
     private String webUrl;
-
-    // The beforeSave() callback is called several times before the save occurs,
-    // so use this as a kludge to prevent multiple polls from being created on FanMob.
-    private transient boolean pollCreated;
 
     @Required
     @Maximum(120)
@@ -81,68 +73,6 @@ public class FanmobPoll extends Content implements Renderer {
             return url.getProtocol() + "://" + url.getHost();
         } catch (Exception e) {
             return "https://www.fanmob.us";
-        }
-    }
-
-    @Override
-    public void beforeSave() {
-        State state = State.getInstance(this);
-        Logger logger = LoggerFactory.getLogger(FanmobPoll.class);
-
-        if (!state.isNew()) {
-            throw new RuntimeException("FanMob polls cannot be edited.");
-        }
-
-        if (!state.validate() || this.pollCreated) {
-            return;
-        }
-
-        // Returns the URL of the created poll
-        ResponseHandler<PollCreationResponse> responseHandler = new ResponseHandler<PollCreationResponse>() {
-            public PollCreationResponse handleResponse(final HttpResponse response)
-                throws ClientProtocolException, IOException {
-                int status = response.getStatusLine().getStatusCode();
-
-                if (status >= 200 && status < 300) {
-                    Logger logger = LoggerFactory.getLogger(FanmobPoll.class);
-                    String json = EntityUtils.toString(response.getEntity());
-                    logger.debug("FanMob poll creation response: " + json);
-
-                    ObjectMapper mapper = new ObjectMapper();
-                    PollCreationResponse pcr = mapper.readValue(json, PollCreationResponse.class);
-                    return pcr;
-                } else if (status == 401) {
-                    throw new ClientProtocolException("FanMob API: Unauthorized (check [fanmob/apiKey] setting)");
-                } else {
-                    throw new ClientProtocolException("Unexpected response status: " + status);
-                }
-            }
-        };
-
-        String apiKey = Settings.getOrError(String.class, "fanmob/apiKey", null);
-        String base = Settings.getOrDefault(String.class, "fanmob/apiBaseUrl", "https://www.fanmob.us/api");
-        HttpPost post = new HttpPost(base + "/polls");
-        post.setHeader("User-Agent", "FanMob-Brightspot/0.1.0");
-        post.setHeader("Authorization", "Token " + apiKey);
-        post.setHeader("Content-type", "application/json");
-
-        PollCreationRequest req = new PollCreationRequest(this.question, this.choices, this.topics);
-        ObjectMapper mapper = new ObjectMapper();
-
-        try {
-            String json = mapper.writeValueAsString(req);
-            logger.debug("Sending JSON: " + json);
-            post.setEntity(new StringEntity(json));
-
-            logger.debug("Executing FanMob API request " + post.getRequestLine());
-            HttpClient client = new DefaultHttpClient();
-            PollCreationResponse pcr = client.execute(post, responseHandler);
-            logger.debug("Got a poll with ID: " + pcr.getPollId() + " at: " + pcr.getWebUrl());
-            this.webUrl = pcr.getWebUrl();
-            this.fanmobId = pcr.getPollId();
-            this.pollCreated = true;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -194,7 +124,7 @@ public class FanmobPoll extends Content implements Renderer {
             HttpServletRequest request,
             HttpServletResponse response,
             HtmlWriter writer)
-    throws IOException {
+            throws IOException {
         writer.writeStart("script");
         writer.writeRaw("(function(d, s, id, or) { var js, fjs = d.getElementsByTagName(s)[0]; if (d.getElementById(id)) return; js = d.createElement(s); js.id = id; js.src = or + '/assets/sdk.js'; fjs.parentNode.insertBefore(js, fjs); }");
         writer.writeRaw("(document,'script','fnmb-jssdk','" + this.getWebUrlBase() + "'));");
@@ -204,5 +134,57 @@ public class FanmobPoll extends Content implements Renderer {
                 "data-fnmb-embed", "poll", "data-fnmb-id", this.getFanmobId());
         writer.writeHtml(this.getQuestion());
         writer.writeEnd();
+    }
+
+    @Override
+    public void create() {
+        Logger logger = LoggerFactory.getLogger(FanmobPoll.class);
+
+        // Returns the URL of the created poll
+        ResponseHandler<PollCreationResponse> responseHandler = new ResponseHandler<PollCreationResponse>() {
+            public PollCreationResponse handleResponse(final HttpResponse response)
+                    throws ClientProtocolException, IOException {
+                int status = response.getStatusLine().getStatusCode();
+
+                if (status >= 200 && status < 300) {
+                    Logger logger = LoggerFactory.getLogger(FanmobPoll.class);
+                    String json = EntityUtils.toString(response.getEntity());
+                    logger.debug("FanMob poll creation response: " + json);
+
+                    ObjectMapper mapper = new ObjectMapper();
+                    PollCreationResponse pcr = mapper.readValue(json, PollCreationResponse.class);
+                    return pcr;
+                } else if (status == 401) {
+                    throw new ClientProtocolException("FanMob API: Unauthorized (check [fanmob/apiKey] setting)");
+                } else {
+                    throw new ClientProtocolException("Unexpected response status: " + status);
+                }
+            }
+        };
+
+        String apiKey = Settings.getOrError(String.class, "fanmob/apiKey", null);
+        String base = Settings.getOrDefault(String.class, "fanmob/apiBaseUrl", "https://www.fanmob.us/api");
+        HttpPost post = new HttpPost(base + "/polls");
+        post.setHeader("User-Agent", "FanMob-Brightspot/0.1.0");
+        post.setHeader("Authorization", "Token " + apiKey);
+        post.setHeader("Content-type", "application/json");
+
+        PollCreationRequest req = new PollCreationRequest(this.question, this.choices, this.topics);
+        ObjectMapper mapper = new ObjectMapper();
+
+        try {
+            String json = mapper.writeValueAsString(req);
+            logger.debug("Sending JSON: " + json);
+            post.setEntity(new StringEntity(json));
+
+            logger.debug("Executing FanMob API request " + post.getRequestLine());
+            HttpClient client = new DefaultHttpClient();
+            PollCreationResponse pcr = client.execute(post, responseHandler);
+            logger.debug("Got a poll with ID: " + pcr.getPollId() + " at: " + pcr.getWebUrl());
+            this.webUrl = pcr.getWebUrl();
+            this.fanmobId = pcr.getPollId();
+        } catch (IOException e) {
+            this.as(FanMobObject.Status.class).setError(e.getMessage());
+        }
     }
 }
