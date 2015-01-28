@@ -4,6 +4,7 @@ import com.psddev.cms.db.Content;
 import com.psddev.cms.db.Renderer;
 import com.psddev.cms.db.ToolUi;
 
+import com.psddev.dari.db.Application;
 import com.psddev.dari.util.*;
 
 import java.io.IOException;
@@ -162,9 +163,24 @@ public class FanmobPoll extends Content implements Renderer, FanMobObject {
             }
         };
 
-        String apiKey = Settings.getOrError(String.class, "fanmob/apiKey", null);
-        String base = Settings.getOrDefault(String.class, "fanmob/apiBaseUrl", "https://www.fanmob.us/api");
-        HttpPost post = new HttpPost(base + "/polls");
+        FanmobSettings settings = Application.Static.getInstance(FanmobSettings.class);
+
+        if (settings == null) {
+            throw new IllegalArgumentException("No Fanmob Settings found");
+        }
+
+        String apiKey = settings.getApiKey();
+        String baseUrl = settings.getApiUrl();
+
+        if (StringUtils.isBlank(apiKey)) {
+            throw new IllegalArgumentException("Fanmob ApiKey not found in settings");
+        }
+
+        if (StringUtils.isBlank(baseUrl)) {
+            throw new IllegalArgumentException("Fanmob base url not found in settings");
+        }
+
+        HttpPost post = new HttpPost(baseUrl + "/polls");
         post.setHeader("User-Agent", "FanMob-Brightspot/0.1.0");
         post.setHeader("Authorization", "Token " + apiKey);
         post.setHeader("Content-type", "application/json");

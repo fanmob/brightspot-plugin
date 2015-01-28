@@ -1,6 +1,7 @@
 package us.fanmob.brightspot;
 
 import com.psddev.cms.db.Content;
+import com.psddev.dari.db.Application;
 import com.psddev.dari.util.*;
 import com.psddev.cms.db.ToolUi;
 
@@ -32,8 +33,20 @@ public class FanmobTopic extends Content implements FanMobObject {
 
     @Override
     public void create() {
-        String base = Settings.getOrDefault(String.class, "fanmob/apiBaseUrl", "https://www.fanmob.us/api");
-        HttpGet getTopic = new HttpGet(base + "/topics/" + this.name);
+
+        FanmobSettings settings = Application.Static.getInstance(FanmobSettings.class);
+
+        if (settings == null) {
+            throw new IllegalArgumentException("No Fanmob Settings found");
+        }
+
+        String baseUrl = settings.getApiUrl();
+
+        if (StringUtils.isBlank(baseUrl)) {
+            throw new IllegalArgumentException("Fanmob base url not found in settings");
+        }
+
+        HttpGet getTopic = new HttpGet(baseUrl + "/topics/" + this.name);
         getTopic.setHeader("User-Agent", "FanMob-Brightspot/0.1.0");
         ResponseHandler<Boolean> responseHandler = new ResponseHandler<Boolean>() {
             public Boolean handleResponse(final HttpResponse response)
